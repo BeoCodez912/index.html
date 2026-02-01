@@ -118,6 +118,25 @@
 
     <div id="widgetMount"></div>
 
+    <div style="max-width:1120px;margin:0 auto 10px auto;">
+  <button
+    id="btnOpenFull"
+    style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid #234323;background:#050805;color:#ffd700;font-weight:900;cursor:pointer;"
+  >
+    Open Full App (recommended for wallets)
+  </button>
+  <div style="font-size:12px;opacity:.9;margin-top:6px;color:#d8ffd8;">
+    If wallets don’t pop inside Blogger, open the full app in a new tab.
+  </div>
+</div>
+
+<script>
+  // Opens your GitHub Pages app in a new tab/window. Wallets behave better outside iframes.
+  document.getElementById("btnOpenFull").addEventListener("click", () => {
+    window.open(window.location.href, "_blank", "noopener,noreferrer");
+  });
+</script>
+    
     <script>
       // ===== your Account array (kept as-is) =====
       const Account = ["1111111111111101 1110111001 00001100 01000000 00111000 1111111111111101 00101101 00111010 1111111111111101 01001110 1111111111111101 1111111111111101 01011110 01000011 00010011 01110000 1111111111111101 11011100000 01110100 1111111111111101 00101111 00110110 00001011 01011101 1111111111111101 1111111111111101 01111001 1111111111111101 00001101 1111111111111101 1111111111111101 01010000 00110100 00000100 01000001 00000001 1111111111111101 01000101 00001100 01011110 00111000 1111111111111101 01010001 00110110 00000000 "];
