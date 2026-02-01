@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Beo — ETH/MATIC/TON Bridge (Embedded) + Send Launcher + Receipts</title>
+
+  <style>
+    :root{
+      --bg:#071007; --bg2:#030603; --line:#1f3a1f; --line2:#234323;
+      --txt:#d8ffd8; --warnbg:#120707; --warn:#ffd8d8; --okbg:#071207; --ok:#d8ffd8;
+      --gold:#ffd700;
+    }
+    body{margin:0;background:#000;color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px}
+    .shell{max-width:1120px;margin:0 auto;background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 12px 36px rgba(0,0,0,.35)}
+    .top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+    .title{font-size:18px;font-weight:900}
+    .tiny{font-size:12px;opacity:.9}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid var(--line2);background:#050805;font-size:12px;white-space:nowrap}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:10px 0}
+    .col{flex:1;min-width:210px}
+    label{display:block;font-size:12px;opacity:.9;margin-bottom:6px}
+    input,select,button{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:#050805;color:var(--txt);outline:none}
+    button{cursor:pointer;font-weight:900;border-color:#2c6a2c}
+    button:hover{filter:brightness(1.08)}
+    #btnSend{border-color:var(--gold)!important;color:var(--gold)!important}
+    #btnSend:hover{filter:brightness(1.12)}
+    .hr{height:1px;background:var(--line);margin:12px 0}
+    .warn,.ok{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:13px;white-space:pre-wrap}
+    .warn{border:1px solid #6a2c2c;background:var(--warnbg);color:var(--warn);display:none}
+    .ok{border:1px solid #2c6a2c;background:var(--okbg);color:var(--ok);display:none}
+    .logArea{
+      margin-top:10px;border:1px solid var(--line2);background:var(--bg2);
+      border-radius:12px;padding:10px 12px;max-height:340px;overflow:auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;white-space:pre-wrap
+    }
+    .hint{border:1px dashed var(--line2);border-radius:12px;padding:10px 12px;background:#050805;font-size:12px;opacity:.95;margin-top:10px}
+    .grid2{display:grid;grid-template-columns:1fr;gap:10px}
+    @media (min-width:980px){ .grid2{grid-template-columns: 1.1fr .9fr; } }
+  </style>
+</head>
+
+<body>
+  <div class="shell">
+    <div class="top">
+      <div>
+        <div class="title">ETH / MATIC / TON — Embedded Bridge UI + Receipts + Restore</div>
+        <div class="tiny">
+          Execution happens inside the widget. The big SEND button just launches you into the widget at the right moment.
+        </div>
+      </div>
+      <span id="eventsPill" class="pill">Events: booting…</span>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div class="row">
+          <div class="col">
+            <label>From asset</label>
+            <select id="fromAsset">
+              <option value="ETH">ETH (Ethereum)</option>
+              <option value="MATIC">MATIC (Polygon)</option>
+              <option value="TON">TON</option>
+            </select>
+            <div class="tiny">Wallets: MetaMask for ETH/MATIC, TonConnect for TON.</div>
+          </div>
+
+          <div class="col">
+            <label>To asset</label>
+            <select id="toAsset">
+              <option value="TON">TON</option>
+              <option value="ETH">ETH</option>
+              <option value="MATIC">MATIC</option>
+            </select>
+            <div class="tiny">Pick destination asset.</div>
+          </div>
+
+          <div class="col">
+            <label>Amount (clamped)</label>
+            <input id="amount" inputmode="decimal" value="0.000000000000000001" />
+            <div class="tiny" id="clampNote">Clamp: —</div>
+          </div>
+
+          <div class="col">
+            <label>TON destination (optional)</label>
+            <input id="tonDest" placeholder="TON address (optional)" />
+            <div class="tiny">Only applied when To = TON.</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col"><button id="btnReload">Reload Widget</button></div>
+          <div class="col"><button id="btnSend">SEND (launch into widget)</button></div>
+          <div class="col"><button id="btnSave">Save Snapshot</button></div>
+          <div class="col"><button id="btnRestore">Restore Snapshot</button></div>
+          <div class="col"><button id="btnExport">Export Receipts JSON</button></div>
+          <div class="col"><button id="btnClear">Clear Log</button></div>
+        </div>
+
+        <div id="msg" class="warn"></div>
+        <div id="ok" class="ok"></div>
+
+        <div class="hint">
+          <b>EVM clamp:</b> 1 wei .. 0.99 (ETH/MATIC)
+          <br />
+          <b>TON clamp:</b> 0.99 nanoTON .. 1 nanoTON (0.99e-9 .. 1e-9 TON). Very tiny amounts may fail route minimums/fees.
+        </div>
+      </div>
+
+      <div>
+        <div class="tiny">Live logArea</div>
+        <div id="logArea" class="logArea"></div>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <div id="widgetMount"></div>
+
+    <script>
+      // ===== your Account array (kept as-is) =====
+      const Account = ["1111111111111101 1110111001 00001100 01000000 00111000 1111111111111101 00101101 00111010 1111111111111101 01001110 1111111111111101 1111111111111101 01011110 01000011 00010011 01110000 1111111111111101 11011100000 01110100 1111111111111101 00101111 00110110 00001011 01011101 1111111111111101 1111111111111101 01111001 1111111111111101 00001101 1111111111111101 1111111111111101 01010000 00110100 00000100 01000001 00000001 1111111111111101 01000101 00001100 01011110 00111000 1111111111111101 01010001 00110110 00000000 "];
+      console.log(Account);
+    </script>
+
+    <script type="module">
+      // Embedded widget runtime (hosted page supports modules; Blogger iframe will display it fine)
+
+      import React, { useEffect } from "https://esm.sh/react@18.3.1";
+      import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+      import { Widget, widgetEventEmitter, WidgetEvents } from "https://esm.sh/@rango-dev/widget-embedded@0.58.0?external=react,react-dom";
+
+      const LAST_ROUTE_KEY = "BEO_RANGO_LAST_ROUTE_VB";
+      const RECEIPTS_KEY   = "BEO_RANGO_RECEIPTS_VB";
+      const LOG_TAIL_KEY   = "BEO_RANGO_LOG_TAIL_VB";
+
+      const $ = (id) => document.getElementById(id);
+
+      function nowTs(){ return new Date().toISOString(); }
+      function safeJson(x){ try { return JSON.stringify(x, null, 2); } catch { return String(x); } }
+
+      function loadJson(key, fallback){
+        try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+        catch{ return fallback; }
+      }
+      function saveJson(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+
+      function setLogTail(fullText){
+        const lines = fullText.split("\n").slice(-260);
+        localStorage.setItem(LOG_TAIL_KEY, lines.join("\n"));
+      }
+      function appendLog(type, data){
+        const el = $("logArea");
+        const line = `[${nowTs()}] ${type}\n${typeof data === "string" ? data : safeJson(data)}\n\n`;
+        el.textContent += line;
+        el.scrollTop = el.scrollHeight;
+        setLogTail(el.textContent);
+      }
+      function showErr(text){
+        $("msg").style.display="block";
+        $("ok").style.display="none";
+        $("msg").textContent=text;
+        appendLog("ERROR", text);
+      }
+      function showOk(text){
+        $("ok").style.display="block";
+        $("msg").style.display="none";
+        $("ok").textContent=text;
+        appendLog("OK", text);
+      }
+
+      // Receipts
+      function readReceipts(){ return loadJson(RECEIPTS_KEY, []); }
+      function pushReceipt(entry){
+        const r = readReceipts();
+        r.push(entry);
+        saveJson(RECEIPTS_KEY, r.slice(-400));
+        appendLog("RECEIPT", entry);
+      }
+      function exportReceipts(){
+        const payload = { exportedAt: nowTs(), lastRoute: loadJson(LAST_ROUTE_KEY, null), receipts: readReceipts() };
+        const blob = new Blob([safeJson(payload)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `beo_rango_receipts_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showOk(`Exported receipts: ${payload.receipts.length}`);
+      }
+
+      // Clamp rules
+      function clampEvm(x){
+        if (!Number.isFinite(x) || x <= 0) return 1e-18;
+        if (x < 1e-18) return 1e-18;
+        if (x > 0.99) return 0.99;
+        return x;
+      }
+      function clampTonTon(xTon){
+        // clamp to 0.99..1.00 nanoTON in TON units
+        const nano = xTon / 1e-9;
+        let n = nano;
+        if (!Number.isFinite(n) || n <= 0) n = 1.0;
+        if (n < 0.99) n = 0.99;
+        if (n > 1.0) n = 1.0;
+        return n * 1e-9;
+      }
+      function computeClampedAmount(fromAsset, rawAmount){
+        const n = parseFloat((rawAmount || "").trim());
+        if (fromAsset === "TON"){
+          const ton = clampTonTon(n);
+          return { amount: ton, note: `TON clamp: ${(ton/1e-9).toFixed(2)} nanoTON (0.99..1.00)` };
+        }
+        const evm = clampEvm(n);
+        return { amount: evm, note: `EVM clamp: ${evm} (1e-18..0.99)` };
+      }
+
+      // Asset mapping
+      function tokenOf(asset){
+        if (asset === "ETH")   return { blockchain: "ETH", symbol: "ETH" };
+        if (asset === "MATIC") return { blockchain: "POLYGON", symbol: "MATIC" };
+        if (asset === "TON")   return { blockchain: "TON", symbol: "TON" };
+        throw new Error("Unknown asset: " + asset);
+      }
+
+      function snapshotFromUI(){
+        return {
+          version: "B",
+          savedAt: nowTs(),
+          fromAsset: $("fromAsset").value,
+          toAsset: $("toAsset").value,
+          amountRaw: $("amount").value,
+          tonDest: ($("tonDest").value || "").trim() || null
+        };
+      }
+      function saveSnapshot(note){
+        const snap = snapshotFromUI();
+        const payload = { note: note || null, snapshot: snap, lastReceipt: readReceipts().slice(-1)[0] || null };
+        saveJson(LAST_ROUTE_KEY, payload);
+        appendLog("SAVE_SNAPSHOT", payload);
+        showOk("Snapshot saved (localStorage).");
+      }
+      function restoreSnapshot(){
+        const payload = loadJson(LAST_ROUTE_KEY, null);
+        if (!payload?.snapshot) return showErr("No snapshot saved yet.");
+        const s = payload.snapshot;
+        $("fromAsset").value = s.fromAsset || "ETH";
+        $("toAsset").value   = s.toAsset   || "TON";
+        $("amount").value    = s.amountRaw || "0.000000000000000001";
+        $("tonDest").value   = s.tonDest   || "";
+        appendLog("RESTORE_SNAPSHOT", payload);
+        showOk("Restored snapshot. Reloading widget…");
+        reloadWidget("restore");
+      }
+      function clearLog(){
+        $("logArea").textContent = "";
+        localStorage.removeItem(LOG_TAIL_KEY);
+        showOk("Log cleared.");
+      }
+
+      // Route hint tracking (for SEND launcher messaging)
+      let lastKnownRouteId = null;
+      function tryExtractRouteId(ev){
+        return ev?.routeId || ev?.route?.id || ev?.route?.requestId || ev?.data?.routeId || ev?.data?.route?.id || null;
+      }
+
+      // Build widget config
+      function buildConfig(snap){
+        const fromTok = tokenOf(snap.fromAsset);
+        const toTok   = tokenOf(snap.toAsset);
+
+        if (fromTok.blockchain === toTok.blockchain && fromTok.symbol === toTok.symbol){
+          throw new Error("From and To are the same asset. Pick a different destination.");
+        }
+
+        const { amount, note } = computeClampedAmount(snap.fromAsset, snap.amountRaw);
+        $("clampNote").textContent = note;
+
+        const cfg = {
+          // Replace these with your own production credentials when you have them.
+          apiKey: "c6381a79-2817-4602-83bf-6a641a409e32",
+          walletConnectProjectId: "e24844c5deb5193c1c14840a7af6a40b",
+
+          theme: { mode: "dark", borderRadius: 16 },
+          amount,
+
+          from: { blockchain: fromTok.blockchain, token: { blockchain: fromTok.blockchain, symbol: fromTok.symbol } },
+          to:   { blockchain: toTok.blockchain,   token: { blockchain: toTok.blockchain,   symbol: toTok.symbol } },
+
+          customDestination: true,
+
+          // EVM wallets; TON wallet uses tonConnect
+          wallets: ["metamask", "wallet-connect"],
+
+          tonConnect: { manifestUrl: "https://app.rango.exchange/tonconnect-manifest.json" }
+        };
+
+        if (snap.tonDest && toTok.blockchain === "TON"){
+          cfg.destination = { blockchain: "TON", address: snap.tonDest };
+        }
+
+        appendLog("WIDGET_CONFIG", cfg);
+        return cfg;
+      }
+
+      function App({ config }){
+        useEffect(() => {
+          const onRoute = (ev) => {
+            const rid = tryExtractRouteId(ev);
+            if (rid) lastKnownRouteId = rid;
+            pushReceipt({ at: nowTs(), kind: "RouteEvent", _routeIdHint: rid || null, ...ev });
+          };
+          const onStep   = (ev) => pushReceipt({ at: nowTs(), kind: "StepEvent",   ...ev });
+          const onQuote  = (ev) => pushReceipt({ at: nowTs(), kind: "QuoteEvent",  ...ev });
+          const onWallet = (ev) => pushReceipt({ at: nowTs(), kind: "WalletEvent", ...ev });
+          const onUi     = (ev) => pushReceipt({ at: nowTs(), kind: "UiEvent",     ...ev });
+
+          widgetEventEmitter.on(WidgetEvents.RouteEvent,  onRoute);
+          widgetEventEmitter.on(WidgetEvents.StepEvent,   onStep);
+          widgetEventEmitter.on(WidgetEvents.QuoteEvent,  onQuote);
+          widgetEventEmitter.on(WidgetEvents.WalletEvent, onWallet);
+          widgetEventEmitter.on(WidgetEvents.UiEvent,     onUi);
+
+          $("eventsPill").textContent = "Events: hooked ✅";
+          appendLog("EVENTS", "Subscribed to Route/Step/Wallet/Quote/UI events.");
+
+          return () => {
+            widgetEventEmitter.off(WidgetEvents.RouteEvent,  onRoute);
+            widgetEventEmitter.off(WidgetEvents.StepEvent,   onStep);
+            widgetEventEmitter.off(WidgetEvents.QuoteEvent,  onQuote);
+            widgetEventEmitter.off(WidgetEvents.WalletEvent, onWallet);
+            widgetEventEmitter.off(WidgetEvents.UiEvent,     onUi);
+            appendLog("EVENTS", "Unsubscribed (remount).");
+          };
+        }, []);
+
+        return React.createElement(Widget, { config });
+      }
+
+      // Mount widget
+      const mount = $("widgetMount");
+      const root = createRoot(mount);
+
+      function reloadWidget(note){
+        try{
+          const snap = snapshotFromUI();
+          const cfg  = buildConfig(snap);
+
+          root.render(React.createElement(App, { config: cfg }));
+
+          saveSnapshot(note || "reload");
+          showOk(`Widget loaded.\nFrom: ${snap.fromAsset} → To: ${snap.toAsset}\nAmount(raw): ${snap.amountRaw}`);
+        }catch(e){
+          $("eventsPill").textContent = "Events: error ⚠️";
+          showErr(e?.message || String(e));
+        }
+      }
+
+      // Option A SEND launcher (external button)
+      function sendLauncher(){
+        appendLog("SEND_CLICK", { note: "External SEND pressed (launcher)." });
+        mount.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        if (!lastKnownRouteId){
+          showErr(
+            "No route detected yet.\n" +
+            "Inside the widget:\n" +
+            "1) Connect MetaMask (ETH/MATIC) and/or TonConnect (TON)\n" +
+            "2) Let it fetch quote/route\n" +
+            "3) Click the widget’s Send/Swap/Bridge button to sign + execute.\n\n" +
+            "Scrolled to widget."
+          );
+        } else {
+          showOk(
+            "Route detected.\n" +
+            `RouteId (best-effort): ${lastKnownRouteId}\n` +
+            "Now click the widget’s Send/Swap/Bridge button to sign + execute.\n\n" +
+            "Scrolled to widget."
+          );
+        }
+      }
+
+      // Restore log tail
+      const tail = localStorage.getItem(LOG_TAIL_KEY);
+      if (tail) $("logArea").textContent = tail + "\n";
+
+      // UI wiring
+      function refreshClampNote(){
+        const snap = snapshotFromUI();
+        const { note } = computeClampedAmount(snap.fromAsset, snap.amountRaw);
+        $("clampNote").textContent = note;
+      }
+
+      $("amount").addEventListener("input", refreshClampNote);
+      $("fromAsset").addEventListener("change", refreshClampNote);
+
+      $("btnReload").addEventListener("click", () => reloadWidget("manual-reload"));
+      $("btnSend").addEventListener("click", sendLauncher);
+      $("btnSave").addEventListener("click", () => saveSnapshot("manual-save"));
+      $("btnRestore").addEventListener("click", restoreSnapshot);
+      $("btnExport").addEventListener("click", exportReceipts);
+      $("btnClear").addEventListener("click", clearLog);
+
+      // Boot
+      $("eventsPill").textContent = "Events: initializing…";
+      appendLog("BOOT", { at: nowTs(), note: "Starting embedded widget…" });
+      refreshClampNote();
+      reloadWidget("auto-boot");
+    </script>
+  </div>
+</body>
+</html>
